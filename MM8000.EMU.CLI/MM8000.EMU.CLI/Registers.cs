@@ -74,5 +74,8 @@ namespace MM8000.EMU.CLI
 
         public bool this[CpuFlags flag] => Flags.HasFlag(flag);
 
+        public Registers this[(byte result, CpuFlags flags) ac] => this[ac.result, ac.flags];
+        public Registers this[byte result, CpuFlags flags] => this with { A = result, Flags = flags, };
+
     }
 }

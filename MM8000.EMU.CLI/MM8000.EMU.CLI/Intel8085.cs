@@ -1,5 +1,4 @@
-﻿using System.Collections;
-using System.Linq;
+﻿using System.Linq;
 
 namespace MM8000.EMU.CLI
 {
@@ -11,41 +10,75 @@ namespace MM8000.EMU.CLI
 
     }
 
+
     public static class OpCodes8085
     {
-        private static int CY(this Registers current) => current[CpuFlags.CY] ? 1 : 0;
-        private static Registers Step(this Registers current) => current[RegisterPair.PC, (ushort)(current[RegisterPair.PC] + 1)];
+        internal static int CY(this Registers current) => current[CpuFlags.CY] ? 1 : 0;
+        internal static Registers Step(this Registers current, int step = 1) => current[RegisterPair.PC, (ushort)(current[RegisterPair.PC] + step)];
 
-        private static (byte result, CpuFlags flags) Add(byte a, byte b, int cy)
+        internal static byte GetValue(this Memory<byte> ram, Registers current, Register register) =>
+                register switch
+                {
+                    Register.M => GetByHL(ram, current),
+                    _ => current[register]
+                };
+
+        internal static CpuFlags GetSimpleFlags(this int result)
         {
-            var result = a + b + cy;
             var flags = CpuFlags.None;
 
-            if ((result & 0x100) != 0) flags |= CpuFlags.CY;
-            if ((new BitArray(new[] { result }).Cast<bool>().Count(b => b) % 2) == 0) flags |= CpuFlags.PE;
+            if (result.Carry8()) flags |= CpuFlags.CY;
+            if (result.EvenParity()) flags |= CpuFlags.PE;
             if (result == 0) flags |= CpuFlags.Z;
-            if ((result & 0x80) != 0) flags |= CpuFlags.S;
+            if (result.Signed8()) flags |= CpuFlags.S;
+
+            return flags;
+        }
+
+        internal static (byte result, CpuFlags flags) Add(byte a, byte b, int cy)
+        {
+            var result = a + b + cy;
+            var flags = result.GetSimpleFlags();
+            if (result.AuxCarryAdd(a, b)) flags |= CpuFlags.AC;
 
             //[Description("Signed Overflow")]
             //V = 1 << 1,
-            //[Description("Aux Carry")]
-            //AC = 1 << 4,
             //[Description("Sign XOR Overflow")]
             //K = 1 << 5,
 
             return ((byte)result, flags);
         }
-
-
-
-        public static Registers NOP(this Memory<byte> ram, Registers current) => current.Step();
-
-        public static Registers ACI(this Memory<byte> ram, Registers current, byte data)
+        internal static (byte result, CpuFlags flags) Sub(byte a, byte b, int cy)
         {
-            var value = current[Register.A] + data + current.CY();
-            //var flags = value.GetFlags8();
-            return current.Step()[Register.A, (byte)(current[Register.A] + data + current.CY())];
+            var result = a - b - cy;
+            var flags = result.GetSimpleFlags();
+            if (result.AuxCarrySubtract(a, b)) flags |= CpuFlags.AC;
+
+            //[Description("Signed Overflow")]
+            //V = 1 << 1,
+            //[Description("Sign XOR Overflow")]
+            //K = 1 << 5,
+
+            return ((byte)result, flags);
         }
+        internal static byte GetByHL(Memory<byte> ram, Registers current) => ram.Span[current.HL];
+
+        public static Registers NOP(Memory<byte> ram, Registers current) => current.Step();
+
+        public static Registers ACI(Memory<byte> ram, Registers current, byte data) =>
+            current[Add(current[Register.A], data, current.CY())].Step(2);
+        public static Registers ADC(Memory<byte> ram, Registers current, Register register) =>
+            current[Add(current[Register.A], ram.GetValue(current, register), current.CY())].Step();
+
+        public static Registers ADI(Memory<byte> ram, Registers current, byte data) =>
+            current[Add(current[Register.A], data, 0)].Step(2);
+        public static Registers ADD(Memory<byte> ram, Registers current, Register register) =>
+            current[Add(current[Register.A], ram.GetValue(current, register), 0)].Step();
+
+        public static Registers ANI(Memory<byte> ram, Registers current, byte data) =>
+            current[((byte)(current[Register.A] & data), current.Flags & ~CpuFlags.CY | CpuFlags.AC)].Step(2);
+        public static Registers ANA(Memory<byte> ram, Registers current, Register register) =>
+            current[((byte)(current[Register.A] & ram.GetValue(current, register)), current.Flags & ~CpuFlags.CY | CpuFlags.AC)].Step();
 
 
     }
